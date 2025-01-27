@@ -47,7 +47,7 @@ window.onload = function () {
     console.log("Hidden input focused");
     if (!window.google) {
       console.log("Loading Google Maps API");
-      fetch("https://your-vercel-app.vercel.app/api/maps-key")
+      fetch("https://your-app.onrender.com/api/maps-key")
         .then((response) => response.json())
         .then((data) => {
           const script = document.createElement("script");

@@ -5,15 +5,15 @@ require("dotenv").config();
 const app = express();
 app.use(cors());
 
+// Render uses PORT environment variable
+const PORT = process.env.PORT || 3000;
+
 app.get("/api/maps-key", (req, res) => {
   res.json({ apiKey: process.env.GOOGLE_MAPS_API_KEY });
 });
 
-// For local development
-if (process.env.NODE_ENV !== "production") {
-  app.listen(3000, () => {
-    console.log("Server running on port 3000");
-  });
-}
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
 
 module.exports = app;
