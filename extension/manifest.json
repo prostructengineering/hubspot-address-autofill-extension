@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "HubSpot Address Autofill",
+  "version": "1.0",
+  "description": "Autofill address fields on HubSpot",
+  "permissions": ["scripting"],
+  "host_permissions": [
+    "https://*.hubspot.com/*",
+    "https://maps.googleapis.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://*.hubspot.com/*"],
+      "js": ["content.js"],
+      "world": "MAIN"
+    }
+  ]
+}
