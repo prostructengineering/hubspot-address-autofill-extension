@@ -11,6 +11,35 @@ window.onload = function () {
 function findAllAddressFields() {
   const fields = [];
 
+  console.log("=== Starting field search ===");
+
+  // Log all spans with data-test-id
+  const allSpans = document.querySelectorAll("span[data-test-id]");
+  console.log(
+    "All spans with data-test-id:",
+    Array.from(allSpans).map((span) => ({
+      id: span.getAttribute("data-test-id"),
+      html: span.outerHTML.substring(0, 100) + "...",
+    }))
+  );
+
+  // Log all textareas
+  const allTextareas = document.querySelectorAll("textarea");
+  console.log(
+    "All textareas:",
+    Array.from(allTextareas).map((textarea) => ({
+      selenium: textarea.getAttribute("data-selenium-test"),
+      id: textarea.id,
+      html: textarea.outerHTML.substring(0, 100) + "...",
+    }))
+  );
+
+  // Log all expandable text containers
+  const allExpandable = document.querySelectorAll(
+    ".private-expandable-text__container"
+  );
+  console.log("All expandable containers:", allExpandable.length);
+
   // Define all possible selector patterns
   const selectorPatterns = [
     {
@@ -27,36 +56,94 @@ function findAllAddressFields() {
       textarea:
         'textarea[data-selenium-test="property-input-street_address_3"]',
     },
+    {
+      container: 'span[data-test-id="address2"]',
+      textarea: 'textarea[data-selenium-test="property-input-address2"]',
+    },
+    {
+      container:
+        'span[data-test-id="deal_address__if_different_from_contact_address_"]',
+      textarea:
+        'textarea[data-selenium-test="property-input-deal_address__if_different_from_contact_address_"]',
+    },
   ];
 
   // Find all matching fields
   selectorPatterns.forEach((pattern) => {
+    console.log("Checking pattern:", pattern);
     const containers = document.querySelectorAll(pattern.container);
+    console.log(
+      `Found ${containers.length} containers for pattern:`,
+      pattern.container
+    );
+
     containers.forEach((container) => {
+      console.log("Container found:", {
+        container: container.outerHTML.substring(0, 100) + "...",
+        hasTextarea: !!container.querySelector(pattern.textarea),
+      });
+
       const textarea = container.querySelector(pattern.textarea);
       if (textarea) {
         fields.push({ container, textarea });
+        console.log("Added field:", {
+          container: pattern.container,
+          textarea: textarea.getAttribute("data-selenium-test"),
+        });
       }
     });
   });
 
-  // Fallback for any address fields we might have missed
-  document
-    .querySelectorAll(
-      'textarea[data-selenium-test*="property-input-street_address"]'
-    )
-    .forEach((textarea) => {
-      if (!fields.some((field) => field.textarea === textarea)) {
-        const container = textarea.closest(
-          ".private-expandable-text__container"
-        );
-        if (container) {
-          fields.push({ container, textarea });
-        }
-      }
+  /* Commenting out fallback search
+  // Enhanced fallback logging
+  console.log("=== Starting fallback search ===");
+  const allPropertyInputs = document.querySelectorAll(
+    'textarea[data-selenium-test*="property-input"]'
+  );
+  console.log(`Found ${allPropertyInputs.length} potential property inputs`);
+
+  allPropertyInputs.forEach((textarea) => {
+    console.log("Checking textarea:", {
+      selenium: textarea.getAttribute("data-selenium-test"),
+      alreadyFound: fields.some((field) => field.textarea === textarea),
+      hasSpanContainer: !!textarea.closest("span[data-test-id]"),
+      hasExpandableContainer: !!textarea.closest(
+        ".private-expandable-text__container"
+      ),
+      parentNode: textarea.parentNode.tagName,
+      parentClasses: textarea.parentNode.className,
     });
 
-  console.log("Found address fields:", fields.length);
+    if (!fields.some((field) => field.textarea === textarea)) {
+      const container =
+        textarea.closest("span[data-test-id]") ||
+        textarea.closest(".private-expandable-text__container");
+
+      if (container) {
+        fields.push({ container, textarea });
+        console.log("Added field via fallback:", {
+          selenium: textarea.getAttribute("data-selenium-test"),
+          containerType: container.tagName,
+          containerId: container.getAttribute("data-test-id"),
+          containerClass: container.className,
+        });
+      }
+    }
+  });
+  */
+
+  console.log("=== Final Results ===");
+  console.log("Total fields found:", fields.length);
+  console.log(
+    "Fields:",
+    fields.map((f) => ({
+      selenium: f.textarea.getAttribute("data-selenium-test"),
+      container:
+        f.container.tagName +
+        (f.container.getAttribute("data-test-id") || f.container.className),
+    }))
+  );
+
   return fields;
 }
 
