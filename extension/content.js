@@ -1,12 +1,71 @@
 window.onload = function () {
   console.log("Content script loaded");
 
-  // Find all address input fields
-  const addressFields = findAllAddressFields();
+  // Initial scan for address fields
+  scanAndSetupAddressFields();
 
-  // Set up autocomplete for each field independently
-  addressFields.forEach(setupAddressField);
+  // Set up MutationObserver to detect dynamically loaded address fields
+  setupMutationObserver();
 };
+
+function scanAndSetupAddressFields() {
+  console.log("Scanning for address fields");
+  const addressFields = findAllAddressFields();
+  addressFields.forEach(setupAddressField);
+  return addressFields.length;
+}
+
+function setupMutationObserver() {
+  console.log("Setting up MutationObserver");
+
+  // Create a MutationObserver instance
+  const observer = new MutationObserver((mutations) => {
+    let shouldScan = false;
+
+    // Check if any mutations might have added address fields
+    for (const mutation of mutations) {
+      if (mutation.type === "childList" && mutation.addedNodes.length > 0) {
+        for (const node of mutation.addedNodes) {
+          if (node.nodeType === Node.ELEMENT_NODE) {
+            // Check if the added node or its children might contain address fields
+            if (
+              node.querySelector("span[data-test-id]") ||
+              node.querySelector(
+                'textarea[data-selenium-test*="property-input"]'
+              ) ||
+              node.querySelector(".private-expandable-text__container") ||
+              (node.tagName === "SPAN" && node.hasAttribute("data-test-id")) ||
+              (node.tagName === "TEXTAREA" &&
+                node.hasAttribute("data-selenium-test"))
+            ) {
+              shouldScan = true;
+              break;
+            }
+          }
+        }
+      }
+
+      if (shouldScan) break;
+    }
+
+    // If relevant nodes were added, scan for new address fields
+    if (shouldScan) {
+      console.log("DOM changes detected, rescanning for address fields");
+      scanAndSetupAddressFields();
+    }
+  });
+
+  // Start observing the entire document with the configured parameters
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true,
+    attributes: false,
+    characterData: false,
+  });
+}
+
+// Keep track of fields we've already processed to avoid duplicates
+const processedFields = new Set();
 
 function findAllAddressFields() {
   const fields = [];
@@ -85,7 +144,17 @@ function findAllAddressFields() {
 
       const textarea = container.querySelector(pattern.textarea);
       if (textarea) {
+        // Skip if we've already processed this textarea
+        if (processedFields.has(textarea)) {
+          console.log(
+            "Skipping already processed field:",
+            textarea.getAttribute("data-selenium-test")
+          );
+          return;
+        }
+
         fields.push({ container, textarea });
+        processedFields.add(textarea);
         console.log("Added field:", {
           container: pattern.container,
           textarea: textarea.getAttribute("data-selenium-test"),
@@ -94,7 +163,7 @@ function findAllAddressFields() {
     });
   });
 
-  /* Commenting out fallback search
+  // Uncomment and enable fallback search for better coverage
   // Enhanced fallback logging
   console.log("=== Starting fallback search ===");
   const allPropertyInputs = document.querySelectorAll(
@@ -103,6 +172,11 @@ function findAllAddressFields() {
   console.log(`Found ${allPropertyInputs.length} potential property inputs`);
 
   allPropertyInputs.forEach((textarea) => {
+    // Skip if we've already processed this textarea
+    if (processedFields.has(textarea)) {
+      return;
+    }
+
     console.log("Checking textarea:", {
       selenium: textarea.getAttribute("data-selenium-test"),
       alreadyFound: fields.some((field) => field.textarea === textarea),
@@ -121,6 +195,7 @@ function findAllAddressFields() {
 
       if (container) {
         fields.push({ container, textarea });
+        processedFields.add(textarea);
         console.log("Added field via fallback:", {
           selenium: textarea.getAttribute("data-selenium-test"),
           containerType: container.tagName,
@@ -130,7 +205,6 @@ function findAllAddressFields() {
       }
     }
   });
-  */
 
   console.log("=== Final Results ===");
   console.log("Total fields found:", fields.length);
