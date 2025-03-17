@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Address Autocomplete</title>
+    <style>
+      body {
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        width: 350px;
+        padding: 15px;
+        margin: 0;
+        background-color: #f5f8fa;
+      }
+      .container {
+        background-color: white;
+        border-radius: 8px;
+        padding: 15px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+      }
+      h1 {
+        color: #33475b;
+        font-size: 18px;
+        margin-top: 0;
+        margin-bottom: 15px;
+        text-align: center;
+      }
+      .logo {
+        display: block;
+        width: 100px;
+        margin: 0 auto 15px;
+      }
+      .input-container {
+        position: relative;
+        margin-bottom: 15px;
+      }
+      #addressInput {
+        width: 100%;
+        padding: 10px;
+        border: 1px solid #cbd6e2;
+        border-radius: 4px;
+        box-sizing: border-box;
+        font-size: 14px;
+      }
+      #addressInput:focus {
+        border-color: #00a4bd;
+        outline: none;
+      }
+      .results-container {
+        max-height: 200px;
+        overflow-y: auto;
+        margin-bottom: 15px;
+      }
+      .result-item {
+        padding: 10px;
+        border-bottom: 1px solid #eaf0f6;
+        cursor: pointer;
+        transition: background-color 0.2s;
+      }
+      .result-item:hover {
+        background-color: #f5f8fa;
+      }
+      .copy-btn {
+        background-color: #ff7a59;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        padding: 8px 12px;
+        cursor: pointer;
+        font-size: 14px;
+        margin-right: 5px;
+      }
+      .copy-btn:hover {
+        background-color: #ff8f73;
+      }
+      .copy-btn:active {
+        background-color: #e66e50;
+      }
+      .btn-disabled {
+        background-color: #cbd6e2;
+        cursor: not-allowed;
+      }
+      .footer {
+        font-size: 12px;
+        color: #8795a6;
+        text-align: center;
+        margin-top: 15px;
+      }
+      .hidden {
+        display: none;
+      }
+      .loading {
+        text-align: center;
+        padding: 10px;
+        color: #8795a6;
+      }
+      .success-message {
+        color: #00bda5;
+        font-size: 12px;
+        margin-top: 5px;
+        text-align: center;
+        height: 15px;
+      }
+    </style>
+    <!-- The Google Maps API will be loaded dynamically after securely obtaining the key -->
+  </head>
+  <body>
+    <div class="container">
+      <h1>Address Autocomplete</h1>
+
+      <div class="input-container">
+        <input
+          type="text"
+          id="addressInput"
+          placeholder="Loading..."
+          disabled
+        />
+      </div>
+
+      <div id="resultsContainer" class="results-container hidden"></div>
+
+      <div id="selectedAddressContainer" class="hidden">
+        <h3>Selected Address:</h3>
+        <div id="selectedAddress"></div>
+        <div
+          style="
+            margin-top: 10px;
+            display: flex;
+            justify-content: space-between;
+          "
+        >
+          <button id="copyFullBtn" class="copy-btn">Copy Full Address</button>
+          <button
+            id="clearBtn"
+            class="copy-btn"
+            style="background-color: #33475b"
+          >
+            Clear
+          </button>
+        </div>
+        <div id="successMessage" class="success-message"></div>
+      </div>
+
+      <div id="loadingIndicator" class="loading hidden">
+        <p>Loading suggestions...</p>
+      </div>
+    </div>
+
+    <div class="footer">
+      <p>Powered by Google Maps Platform</p>
+    </div>
+
+    <script src="popup.js"></script>
+  </body>
+</html>
