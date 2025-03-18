@@ -19,7 +19,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Backend endpoint - UPDATE THIS to your Cloudflare Worker URL
   const BACKEND_URL =
-    "https://hs-address-autocomplete.your-username.workers.dev";
+    "https://43140228-hubspot-address-autofill-extension.abhijay-e51.workers.dev";
 
   // Create status container if it doesn't exist
   function createStatusContainer() {
@@ -72,43 +72,35 @@ document.addEventListener("DOMContentLoaded", () => {
     showError("Backend unavailable. Try again later.");
   }
 
-  // Securely get API key through background script
-  console.log("Requesting API key from background script");
+  // Fetch API key directly from the endpoint
+  console.log("Fetching API key from backend endpoint");
   loadingIndicator.classList.remove("hidden");
 
-  try {
-    chrome.runtime.sendMessage({ action: "getApiKey" }, (response) => {
-      loadingIndicator.classList.add("hidden");
-
-      console.log(
-        "Received response from background script for API key:",
-        response ? !!response.apiKey : "no response"
-      );
-
-      if (chrome.runtime.lastError) {
-        console.error("Chrome runtime error:", chrome.runtime.lastError);
-        handleBackendUnavailable("Chrome runtime error");
-        return;
+  fetch(`${BACKEND_URL}/api/maps-key`)
+    .then((response) => {
+      if (!response.ok) {
+        throw new Error(`HTTP error! Status: ${response.status}`);
       }
+      return response.json();
+    })
+    .then((data) => {
+      loadingIndicator.classList.add("hidden");
+      console.log("Successfully received API key from endpoint");
 
-      if (response && response.apiKey) {
-        console.log("Successfully received API key from background");
+      if (data && data.apiKey) {
         apiKeyAvailable = true;
         hideStatusMessage();
-        initializeAddressAutocomplete(response.apiKey);
-      } else if (response && response.error) {
-        console.error("Error from background script:", response.error);
-        handleBackendUnavailable(response.error);
+        initializeAddressAutocomplete(data.apiKey);
       } else {
-        console.log("No API key or error in response");
+        console.error("No API key in response data");
         handleBackendUnavailable("No API key received");
       }
+    })
+    .catch((error) => {
+      console.error("Error fetching API key:", error);
+      loadingIndicator.classList.add("hidden");
+      handleBackendUnavailable(error.message);
     });
-  } catch (error) {
-    console.error("Error sending message to background:", error);
-    loadingIndicator.classList.add("hidden");
-    handleBackendUnavailable(error.message);
-  }
 
   // Use fetch to make requests to the Google Places API through background script
   async function initializeAddressAutocomplete(apiKey) {
@@ -236,52 +228,102 @@ document.addEventListener("DOMContentLoaded", () => {
     resultsContainer.classList.add("hidden");
     loadingIndicator.classList.remove("hidden");
 
-    // Get detailed place information through background script
-    console.log("Requesting place details for:", prediction.place_id);
-    try {
-      chrome.runtime.sendMessage(
-        {
-          action: "getPlaceDetails",
-          placeId: prediction.place_id,
-        },
-        (response) => {
-          loadingIndicator.classList.add("hidden");
-          console.log(
-            "Received place details response:",
-            response ? !response.error : "no response"
-          );
+    // Store API key reference for use in other functions
+    let currentApiKey = null;
 
-          if (chrome.runtime.lastError) {
-            console.error("Chrome runtime error:", chrome.runtime.lastError);
-            return;
-          }
-
-          if (!response) {
-            console.error("No place details response received");
-            return;
-          }
-
-          if (response.error) {
-            console.error("Error fetching place details:", response.error);
-            return;
-          }
-
-          if (response.place) {
-            console.log(
-              "Place details received:",
-              response.place.formatted_address
-            );
-            selectedPlace = response.place;
-            displaySelectedAddress(response.place);
-          } else {
-            console.error("No place data in response", response);
-          }
-        }
-      );
-    } catch (error) {
-      console.error("Error sending message for place details:", error);
+    // Make sure we have the current API key
+    if (!apiKeyAvailable) {
+      console.error("No API key available for place details");
       loadingIndicator.classList.add("hidden");
+      showStatusMessage(
+        "⚠️ Cannot fetch address details. API key unavailable.",
+        true
+      );
+      return;
     }
+
+    // Get the API key fresh from the backend
+    fetch(`${BACKEND_URL}/api/maps-key`)
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`HTTP error! Status: ${response.status}`);
+        }
+        return response.json();
+      })
+      .then((data) => {
+        if (!data || !data.apiKey) {
+          throw new Error("No API key in response");
+        }
+
+        currentApiKey = data.apiKey;
+
+        // Get detailed place information through background script
+        console.log("Requesting place details for:", prediction.place_id);
+        return new Promise((resolve, reject) => {
+          try {
+            chrome.runtime.sendMessage(
+              {
+                action: "getPlaceDetails",
+                placeId: prediction.place_id,
+                apiKey: currentApiKey,
+              },
+              (response) => {
+                if (chrome.runtime.lastError) {
+                  console.error(
+                    "Chrome runtime error:",
+                    chrome.runtime.lastError
+                  );
+                  reject(chrome.runtime.lastError);
+                  return;
+                }
+
+                if (!response) {
+                  console.error("No place details response received");
+                  reject(new Error("No response received"));
+                  return;
+                }
+
+                if (response.error) {
+                  console.error(
+                    "Error fetching place details:",
+                    response.error
+                  );
+                  reject(new Error(response.error));
+                  return;
+                }
+
+                if (response.place) {
+                  console.log(
+                    "Place details received:",
+                    response.place.formatted_address
+                  );
+                  resolve(response.place);
+                } else {
+                  console.error("No place data in response", response);
+                  reject(new Error("No place data in response"));
+                }
+              }
+            );
+          } catch (error) {
+            console.error("Error sending message for place details:", error);
+            reject(error);
+          }
+        });
+      })
+      .then((place) => {
+        selectedPlace = place;
+        displaySelectedAddress(place);
+      })
+      .catch((error) => {
+        console.error("Error in place details process:", error);
+        showStatusMessage(
+          `⚠️ Error getting address details: ${error.message}`,
+          true
+        );
+      })
+      .finally(() => {
+        loadingIndicator.classList.add("hidden");
+      });
   }
 
   // Display the selected address
