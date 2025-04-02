@@ -17,9 +17,8 @@ document.addEventListener("DOMContentLoaded", () => {
   let selectedPlace = null;
   let apiKeyAvailable = false;
 
-  // Backend endpoint - UPDATE THIS to your Cloudflare Worker URL
-  const BACKEND_URL =
-    "https://43140228-hubspot-address-autofill-extension.abhijay-e51.workers.dev";
+  // Backend endpoint
+  const BACKEND_URL = "https://hs-address-autocomplete.abhijay-e51.workers.dev";
 
   // Create status container if it doesn't exist
   function createStatusContainer() {
@@ -72,35 +71,141 @@ document.addEventListener("DOMContentLoaded", () => {
     showError("Backend unavailable. Try again later.");
   }
 
-  // Fetch API key directly from the endpoint
-  console.log("Fetching API key from backend endpoint");
-  loadingIndicator.classList.remove("hidden");
+  // Create and show login button
+  function showLoginButton() {
+    // Remove existing login button if any
+    const existingBtn = document.getElementById("loginButton");
+    if (existingBtn) {
+      existingBtn.remove();
+    }
 
-  fetch(`${BACKEND_URL}/api/maps-key`)
-    .then((response) => {
-      if (!response.ok) {
-        throw new Error(`HTTP error! Status: ${response.status}`);
-      }
-      return response.json();
-    })
-    .then((data) => {
-      loadingIndicator.classList.add("hidden");
-      console.log("Successfully received API key from endpoint");
+    const loginBtn = document.createElement("button");
+    loginBtn.id = "loginButton";
+    loginBtn.textContent = "Login with Google";
+    loginBtn.style.backgroundColor = "#4285f4";
+    loginBtn.style.color = "white";
+    loginBtn.style.border = "none";
+    loginBtn.style.borderRadius = "4px";
+    loginBtn.style.padding = "10px 16px";
+    loginBtn.style.fontSize = "14px";
+    loginBtn.style.cursor = "pointer";
+    loginBtn.style.width = "100%";
+    loginBtn.style.marginTop = "15px";
+    loginBtn.style.fontWeight = "500";
+    loginBtn.style.display = "flex";
+    loginBtn.style.alignItems = "center";
+    loginBtn.style.justifyContent = "center";
 
-      if (data && data.apiKey) {
-        apiKeyAvailable = true;
-        hideStatusMessage();
-        initializeAddressAutocomplete(data.apiKey);
-      } else {
-        console.error("No API key in response data");
-        handleBackendUnavailable("No API key received");
-      }
-    })
-    .catch((error) => {
-      console.error("Error fetching API key:", error);
-      loadingIndicator.classList.add("hidden");
-      handleBackendUnavailable(error.message);
+    // Add Google icon
+    const icon = document.createElement("img");
+    icon.src =
+      "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48' width='24px' height='24px'%3E%3Cpath fill='%23FFC107' d='M43.611,20.083H42V20H24v8h11.303c-1.649,4.657-6.08,8-11.303,8c-6.627,0-12-5.373-12-12c0-6.627,5.373-12,12-12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C12.955,4,4,12.955,4,24c0,11.045,8.955,20,20,20c11.045,0,20-8.955,20-20C44,22.659,43.862,21.35,43.611,20.083z'/%3E%3Cpath fill='%23FF3D00' d='M6.306,14.691l6.571,4.819C14.655,15.108,18.961,12,24,12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C16.318,4,9.656,8.337,6.306,14.691z'/%3E%3Cpath fill='%234CAF50' d='M24,44c5.166,0,9.86-1.977,13.409-5.192l-6.19-5.238C29.211,35.091,26.715,36,24,36c-5.202,0-9.619-3.317-11.283-7.946l-6.522,5.025C9.505,39.556,16.227,44,24,44z'/%3E%3Cpath fill='%231976D2' d='M43.611,20.083H42V20H24v8h11.303c-0.792,2.237-2.231,4.166-4.087,5.571c0.001-0.001,0.002-0.001,0.003-0.002l6.19,5.238C36.971,39.205,44,34,44,24C44,22.659,43.862,21.35,43.611,20.083z'/%3E%3C/svg%3E";
+    icon.style.marginRight = "10px";
+    icon.style.width = "18px";
+    icon.style.height = "18px";
+
+    loginBtn.prepend(icon);
+
+    loginBtn.addEventListener("mouseover", () => {
+      loginBtn.style.backgroundColor = "#357ABD";
     });
+
+    loginBtn.addEventListener("mouseout", () => {
+      loginBtn.style.backgroundColor = "#4285f4";
+    });
+
+    loginBtn.addEventListener("click", () => {
+      loginBtn.disabled = true;
+      loginBtn.style.opacity = "0.7";
+      loginBtn.textContent = "Authenticating...";
+
+      chrome.runtime.sendMessage({ action: "authenticateUser" }, () => {
+        // After sending auth request, check status after a short delay
+        setTimeout(() => {
+          checkAuthStatus();
+        }, 1000);
+      });
+    });
+
+    document.querySelector(".container").appendChild(loginBtn);
+  }
+
+  // Check auth status and handle UI accordingly
+  function checkAuthStatus() {
+    console.log("[Popup] Checking authorization status");
+    loadingIndicator.classList.remove("hidden");
+
+    chrome.runtime.sendMessage({ action: "checkAuthorization" }, (response) => {
+      loadingIndicator.classList.add("hidden");
+
+      if (chrome.runtime.lastError) {
+        console.error(
+          "[Popup] Error checking authorization:",
+          chrome.runtime.lastError
+        );
+        showStatusMessage(
+          "⚠️ Error checking authorization status. Please reload the extension."
+        );
+        showLoginButton();
+        return;
+      }
+
+      console.log("[Popup] Authorization response:", response);
+
+      // Check if response is an object with isAuthorized property
+      if (
+        response &&
+        typeof response === "object" &&
+        response.isAuthorized === true
+      ) {
+        console.log("[Popup] User is authorized");
+        hideStatusMessage();
+        fetchApiKey();
+      } else {
+        console.log("[Popup] User is not authorized");
+        showStatusMessage(
+          "⚠️ You are not authorized to use this extension. Access is restricted to @prostructengineering.com domain users."
+        );
+        showError("Unauthorized access. Please contact your administrator.");
+        showLoginButton();
+      }
+    });
+  }
+
+  // Start by checking auth status
+  checkAuthStatus();
+
+  // Fetch API key directly from the endpoint
+  function fetchApiKey() {
+    console.log("Fetching API key from backend endpoint");
+    loadingIndicator.classList.remove("hidden");
+
+    fetch(`${BACKEND_URL}/api/maps-key`)
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`HTTP error! Status: ${response.status}`);
+        }
+        return response.json();
+      })
+      .then((data) => {
+        loadingIndicator.classList.add("hidden");
+        console.log("Successfully received API key from endpoint");
+
+        if (data && data.apiKey) {
+          apiKeyAvailable = true;
+          hideStatusMessage();
+          initializeAddressAutocomplete(data.apiKey);
+        } else {
+          console.error("No API key in response data");
+          handleBackendUnavailable("No API key received");
+        }
+      })
+      .catch((error) => {
+        console.error("Error fetching API key:", error);
+        loadingIndicator.classList.add("hidden");
+        handleBackendUnavailable(error.message);
+      });
+  }
 
   // Use fetch to make requests to the Google Places API through background script
   async function initializeAddressAutocomplete(apiKey) {

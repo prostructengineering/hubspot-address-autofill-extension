@@ -1,12 +1,17 @@
 name = "hs-address-autocomplete"
 main = "worker.js"
-compatibility_date = "2023-12-01"
+compatibility_date = "2024-01-27"
 
 # Enable variable bindings
 usage_model = "bundled"
 
 # Add environment variables (placeholders - configure in Cloudflare dashboard)
 [vars]
-# NOTE: Replace this with your actual API key in the Cloudflare dashboard
-# This is just a placeholder that will be replaced in the dashboard
-GOOGLE_MAPS_API_KEY = "your-google-maps-api-key-goes-here" 
+# Sensitive variables should be set using Cloudflare's Workers UI or CLI
+# GOOGLE_MAPS_API_KEY = "<your_api_key>"
+# GOOGLE_CLIENT_ID = "<your_client_id>"
+
+# development environment
+[env.dev]
+# This is where you can define env-specific vars
+# vars = { GOOGLE_MAPS_API_KEY = "<your_dev_api_key>", GOOGLE_CLIENT_ID = "<your_dev_client_id>" } 

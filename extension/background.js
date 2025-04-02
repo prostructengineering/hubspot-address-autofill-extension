@@ -1,25 +1,216 @@
-// This background script helps manage the extension securely
+// HubSpot Address Autofill Extension - Background Worker
 console.log("Background script loaded");
 
-// Backend endpoint - UPDATE THIS to your Cloudflare Worker URL
-const BACKEND_URL = "https://hs-address-autocomplete.your-username.workers.dev";
-
-// API endpoint path
+// Backend endpoints
+const BACKEND_URL = "https://hs-address-autocomplete.abhijay-e51.workers.dev";
+const AUTH_ENDPOINT = "/auth/callback";
 const API_PATH = "/api/maps-key";
 
-// Remove fallback key - API key should only come from secure backend
+// Google OAuth client ID (replace with your actual client ID from Google Cloud Console)
+const CLIENT_ID =
+  "705314456943-n50iekkla81tnuu4ovumklk6ts5e9hek.apps.googleusercontent.com";
 
 // Cache for the API key
 let apiKeyCache = null;
 let lastFetchTime = 0;
 const CACHE_DURATION = 3600000; // 1 hour in milliseconds
 
-// Flag to track if we've logged the backend status warning
+// Cache for auth status
+let isAuthorized = false;
+let authCheckedTime = 0;
+const AUTH_CACHE_DURATION = 86400000; // 24 hours in milliseconds
+
+// Flag to track if we've logged warnings
 let backendWarningLogged = false;
+
+// Run authentication on install
+chrome.runtime.onInstalled.addListener(() => {
+  console.log("Extension installed. Starting authentication...");
+  authenticateUser();
+});
+
+// Check authentication status when extension starts
+chrome.runtime.onStartup.addListener(() => {
+  console.log("Extension started. Checking authentication...");
+  // If auth cache has expired, recheck
+  if (Date.now() - authCheckedTime > AUTH_CACHE_DURATION) {
+    authenticateUser();
+  }
+});
+
+// Generate a random nonce for security
+function generateNonce() {
+  const array = new Uint8Array(16);
+  crypto.getRandomValues(array);
+  return Array.from(array, (byte) =>
+    ("0" + (byte & 0xff).toString(16)).slice(-2)
+  ).join("");
+}
+
+// Main function to authenticate the user
+async function authenticateUser() {
+  console.log("[Auth] Starting authentication process...");
+
+  try {
+    // Get the redirect URL for authentication
+    const redirectURL = chrome.identity.getRedirectURL("auth");
+    console.log("[Auth] Redirect URL:", redirectURL);
+
+    // Generate a nonce for security
+    const nonce = generateNonce();
+    console.log("[Auth] Generated nonce:", nonce);
+
+    // Construct the auth URL
+    const authURL = new URL("https://accounts.google.com/o/oauth2/v2/auth");
+    authURL.searchParams.append("client_id", CLIENT_ID);
+    authURL.searchParams.append("response_type", "id_token");
+    authURL.searchParams.append("redirect_uri", redirectURL);
+    authURL.searchParams.append("scope", "openid email");
+    authURL.searchParams.append("nonce", nonce);
+
+    console.log("[Auth] Launching web auth flow...");
+
+    // Launch the authentication flow
+    chrome.identity.launchWebAuthFlow(
+      {
+        url: authURL.toString(),
+        interactive: true,
+      },
+      async (responseUrl) => {
+        if (chrome.runtime.lastError) {
+          console.error("[Auth] Auth flow error:", chrome.runtime.lastError);
+          return;
+        }
+
+        if (!responseUrl) {
+          console.error("[Auth] No response URL received from auth flow");
+          return;
+        }
+
+        console.log("[Auth] Received auth response URL");
+
+        try {
+          // Extract the ID token from the URL
+          const hashParams = new URLSearchParams(
+            new URL(responseUrl).hash.substring(1)
+          );
+          const idToken = hashParams.get("id_token");
+
+          if (!idToken) {
+            console.error("[Auth] No ID token found in response URL");
+            return;
+          }
+
+          console.log("[Auth] Extracted ID token, verifying with backend...");
+
+          // Send the ID token to our backend for verification
+          const verifyResponse = await fetch(
+            `${BACKEND_URL}${AUTH_ENDPOINT}?id_token=${idToken}`,
+            {
+              method: "GET",
+              headers: {
+                Accept: "application/json",
+              },
+              mode: "cors",
+            }
+          );
+
+          if (!verifyResponse.ok) {
+            console.error(
+              "[Auth] Backend verification failed:",
+              verifyResponse.status
+            );
+            setAuthorization(false);
+            return;
+          }
+
+          // Parse the response
+          const authResult = await verifyResponse.json();
+          console.log("[Auth] Authorization result:", authResult);
+
+          // Set the authorization status
+          setAuthorization(authResult.authorized === true);
+        } catch (error) {
+          console.error("[Auth] Error processing auth response:", error);
+          setAuthorization(false);
+        }
+      }
+    );
+  } catch (error) {
+    console.error("[Auth] Authentication process failed:", error);
+    setAuthorization(false);
+  }
+}
+
+// Function to set the authorization status
+function setAuthorization(authorized) {
+  console.log("Setting authorization status:", authorized);
+  isAuthorized = authorized;
+  authCheckedTime = Date.now();
+
+  // Store the auth status
+  chrome.storage.local.set({
+    isAuthorized: authorized,
+    authCheckedTime: authCheckedTime,
+  });
+
+  // Disable the extension if not authorized
+  if (!authorized) {
+    console.warn(
+      "User is not authorized. Extension features will be disabled."
+    );
+    // You may want to update the UI or disable certain features
+  }
+}
+
+// Function to check if the user is authorized
+async function checkAuthorization() {
+  console.log("[Auth] Checking authorization status");
+
+  // If we've recently checked, use cached result
+  if (Date.now() - authCheckedTime < AUTH_CACHE_DURATION) {
+    console.log("[Auth] Using cached authorization status:", isAuthorized);
+    return { isAuthorized };
+  }
+
+  // Otherwise get from storage
+  return new Promise((resolve) => {
+    chrome.storage.local.get(["isAuthorized", "authCheckedTime"], (result) => {
+      console.log("[Auth] Retrieved from storage:", result);
+
+      if (result.isAuthorized !== undefined && result.authCheckedTime) {
+        isAuthorized = result.isAuthorized;
+        authCheckedTime = result.authCheckedTime;
+
+        // If the cache is still valid
+        if (Date.now() - authCheckedTime < AUTH_CACHE_DURATION) {
+          console.log(
+            "[Auth] Using stored authorization status:",
+            isAuthorized
+          );
+          resolve({ isAuthorized });
+          return;
+        }
+      }
+
+      // If no valid cache, trigger a new auth check
+      console.log("[Auth] No valid cache, triggering new auth check");
+      authenticateUser();
+      resolve({ isAuthorized: false }); // Return false until auth completes
+    });
+  });
+}
 
 // Function to securely fetch API key from backend
 async function fetchApiKey() {
-  console.log("Attempting to fetch API key from backend:", BACKEND_URL);
+  console.log("Attempting to fetch API key from backend");
+
+  // Check if user is authorized first
+  const authorized = await checkAuthorization();
+  if (!authorized) {
+    console.error("User is not authorized to access the API key");
+    return null;
+  }
 
   try {
     const url = `${BACKEND_URL}${API_PATH}`;
@@ -46,10 +237,9 @@ async function fetchApiKey() {
       const errorText = await response.text();
       console.error("Response error text:", errorText);
 
-      // Backend error - don't use fallback key anymore
       if (!backendWarningLogged) {
         console.warn(
-          "IMPORTANT: Cannot get API key from backend. Please ensure your backend is properly deployed and configured with GOOGLE_MAPS_API_KEY environment variable."
+          "IMPORTANT: Cannot get API key from backend. Please ensure your backend is properly deployed and configured."
         );
         backendWarningLogged = true;
       }
@@ -57,21 +247,7 @@ async function fetchApiKey() {
       throw new Error(`Backend error: ${response.status} ${errorText}`);
     }
 
-    // Log the raw response for debugging
-    const rawText = await response.text();
-    console.log("Raw response:", rawText);
-
-    // Parse the response text as JSON
-    let data;
-    try {
-      data = JSON.parse(rawText);
-    } catch (parseError) {
-      console.error("JSON parse error:", parseError);
-      throw new Error(
-        `Invalid JSON response from backend: ${parseError.message}`
-      );
-    }
-
+    const data = await response.json();
     console.log("Parsed response data:", data);
 
     if (data && data.apiKey) {
@@ -94,7 +270,6 @@ async function fetchApiKey() {
       );
     } else {
       console.error("Detailed error while fetching API key:", error);
-      console.error("Error stack:", error.stack);
     }
 
     if (!backendWarningLogged) {
@@ -115,202 +290,134 @@ function isKeyValid() {
   return isValid;
 }
 
-// Make a request to the Google Places API for autocomplete predictions
+// Function to get place predictions
 async function getPlacePredictions(query, apiKey) {
-  console.log("Getting predictions for query:", query);
-
-  if (!apiKey) {
-    console.error("No API key provided for predictions");
-
-    // If no API key provided, use cached key or throw error
-    if (isKeyValid()) {
-      apiKey = apiKeyCache;
-    } else {
-      return {
-        error: "No API key available. Please check backend configuration.",
-      };
-    }
-
-    if (!apiKey) {
-      return { error: "API key is required" };
-    }
-  }
+  console.log("[API] Getting place predictions for query:", query);
 
   try {
-    const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(
-      query
-    )}&types=address&key=${apiKey}`;
-
-    console.log(
-      "Fetching predictions from URL:",
-      url.replace(apiKey, "API_KEY_HIDDEN")
+    console.log("[API] Sending request to backend endpoint");
+    const response = await fetch(
+      `${BACKEND_URL}/api/place/autocomplete?input=${encodeURIComponent(
+        query
+      )}`,
+      {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+        },
+      }
     );
-
-    const response = await fetch(url);
-    console.log("Predictions response status:", response.status);
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error("Predictions response error:", errorText);
+      console.error(
+        "[API] Backend request failed:",
+        response.status,
+        errorText
+      );
       throw new Error(`HTTP error! Status: ${response.status}`);
     }
 
     const data = await response.json();
-    console.log("Received predictions data status:", data.status);
+    console.log("[API] Received response from backend");
 
     if (data.status === "OK") {
       console.log(
-        "Successfully received predictions:",
+        "[API] Successfully received predictions:",
         data.predictions.length
       );
       return { predictions: data.predictions };
     } else {
-      console.error("Google API error in predictions:", data);
-      throw new Error(
-        `Google API error: ${data.status}, ${
-          data.error_message || "No error message"
-        }`
-      );
+      console.error("[API] Backend returned error status:", data.status);
+      throw new Error(data.error_message || "Failed to get predictions");
     }
   } catch (error) {
-    console.error("Detailed error fetching predictions:", error);
-    console.error("Error stack:", error.stack);
-    return { error: error.message };
+    console.error("[API] Error fetching predictions:", error);
+    throw error;
   }
 }
 
-// Get place details from Google Places API
+// Function to get place details
 async function getPlaceDetails(placeId, apiKey) {
-  console.log("Getting place details for placeId:", placeId);
-
-  if (!apiKey && isKeyValid()) {
-    console.log("Using cached API key for place details");
-    apiKey = apiKeyCache;
-  }
-
-  if (!apiKey) {
-    console.error("Failed to get API key for place details");
-    return {
-      error: "No API key available. Please check backend configuration.",
-    };
-  }
+  console.log("[API] Getting place details for ID:", placeId);
 
   try {
-    const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&fields=formatted_address,address_components&key=${apiKey}`;
-
-    console.log(
-      "Fetching place details from URL:",
-      url.replace(apiKey, "API_KEY_HIDDEN")
+    console.log("[API] Sending request to backend endpoint");
+    const response = await fetch(
+      `${BACKEND_URL}/api/place/details?place_id=${placeId}`,
+      {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+        },
+      }
     );
-
-    const response = await fetch(url);
-    console.log("Place details response status:", response.status);
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error("Place details response error:", errorText);
+      console.error(
+        "[API] Backend request failed:",
+        response.status,
+        errorText
+      );
       throw new Error(`HTTP error! Status: ${response.status}`);
     }
 
     const data = await response.json();
-    console.log("Received place details data status:", data.status);
+    console.log("[API] Received response from backend");
 
     if (data.status === "OK" && data.result) {
-      console.log("Successfully received place details");
+      console.log("[API] Successfully received place details");
       return { place: data.result };
     } else {
-      console.error("Google API error in place details:", data);
-      throw new Error(
-        `Google API error: ${data.status}, ${
-          data.error_message || "No error message"
-        }`
-      );
+      console.error("[API] Backend returned error status:", data.status);
+      throw new Error(data.error_message || "Failed to get place details");
     }
   } catch (error) {
-    console.error("Detailed error fetching place details:", error);
-    console.error("Error stack:", error.stack);
-    return { error: error.message };
+    console.error("[API] Error fetching place details:", error);
+    throw error;
   }
 }
 
-// Listen for messages from the popup
+// Handle messages from the popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  console.log("Received message with action:", request.action);
+  console.log("[Message] Received message:", request.action);
 
-  if (request.action === "getApiKey") {
-    // If we have a valid cached key, return it immediately
-    if (isKeyValid()) {
-      console.log("Returning cached API key");
-      sendResponse({ apiKey: apiKeyCache });
-      return true;
-    }
-
-    // Otherwise fetch a new key
-    console.log("Fetching new API key");
-    fetchApiKey()
-      .then((apiKey) => {
-        console.log("API key fetch completed, key available:", !!apiKey);
-        sendResponse({ apiKey: apiKey });
+  if (request.action === "authenticateUser") {
+    authenticateUser();
+    sendResponse({ status: "Authentication started" });
+  } else if (request.action === "checkAuthorization") {
+    checkAuthorization().then(sendResponse);
+    return true; // Will respond asynchronously
+  } else if (request.action === "getPlacePredictions") {
+    console.log(
+      "[Message] Processing predictions request for query:",
+      request.query
+    );
+    getPlacePredictions(request.query)
+      .then((data) => {
+        console.log("[Message] Sending predictions response");
+        sendResponse(data);
       })
       .catch((error) => {
-        console.error("Error in getApiKey handler:", error);
-        // Return error instead of fallback key
-        sendResponse({
-          error:
-            "Could not get API key from backend. Please check your backend configuration.",
-        });
-      });
-
-    // Return true to indicate we will respond asynchronously
-    return true;
-  }
-
-  if (request.action === "getPlacePredictions") {
-    const { query, apiKey } = request;
-    console.log("Processing getPlacePredictions for query:", query);
-
-    if (!query) {
-      console.error("Missing query in getPlacePredictions request");
-      sendResponse({ error: "Query is required" });
-      return true;
-    }
-
-    getPlacePredictions(query, apiKey)
-      .then((result) => {
-        console.log("getPlacePredictions completed, success:", !result.error);
-        sendResponse(result);
-      })
-      .catch((error) => {
-        console.error("Error in getPlacePredictions handler:", error);
+        console.error("[Message] Error in predictions request:", error);
         sendResponse({ error: error.message });
       });
-
-    return true;
-  }
-
-  if (request.action === "getPlaceDetails") {
-    const { placeId } = request;
-    console.log("Processing getPlaceDetails for placeId:", placeId);
-
-    if (!placeId) {
-      console.error("Missing placeId in getPlaceDetails request");
-      sendResponse({ error: "Place ID is required" });
-      return true;
-    }
-
-    getPlaceDetails(placeId, request.apiKey)
-      .then((result) => {
-        console.log("getPlaceDetails completed, success:", !result.error);
-        sendResponse(result);
+    return true; // Will respond asynchronously
+  } else if (request.action === "getPlaceDetails") {
+    console.log(
+      "[Message] Processing place details request for ID:",
+      request.placeId
+    );
+    getPlaceDetails(request.placeId)
+      .then((data) => {
+        console.log("[Message] Sending place details response");
+        sendResponse(data);
       })
       .catch((error) => {
-        console.error("Error in getPlaceDetails handler:", error);
+        console.error("[Message] Error in place details request:", error);
         sendResponse({ error: error.message });
       });
-
-    return true;
+    return true; // Will respond asynchronously
   }
-
-  console.log("No handler for action:", request.action);
-  return false;
 });

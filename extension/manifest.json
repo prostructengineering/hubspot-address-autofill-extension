@@ -1,18 +1,11 @@
 {
   "manifest_version": 3,
-  "name": "HubSpot Address Autocomplete",
+  "name": "HubSpot Address Autofill",
   "version": "1.0",
-  "description": "Easily find and copy formatted addresses for HubSpot",
-  "permissions": ["scripting", "clipboardWrite"],
-  "host_permissions": [
-    "https://*.hubspot.com/*",
-    "https://maps.googleapis.com/*",
-    "https://*.googleapis.com/*",
-    "https://prostruct-engineering-hs-autocomplete.onrender.com/*"
-  ],
+  "description": "Autofill address fields on HubSpot",
+  "permissions": ["identity", "storage"],
   "background": {
-    "service_worker": "background.js",
-    "type": "module"
+    "service_worker": "background.js"
   },
   "action": {
     "default_popup": "popup.html",
@@ -36,5 +29,9 @@
   ],
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'"
+  },
+  "oauth2": {
+    "client_id": "705314456943-n50iekkla81tnuu4ovumklk6ts5e9hek.apps.googleusercontent.com",
+    "scopes": ["openid", "email"]
   }
 }
